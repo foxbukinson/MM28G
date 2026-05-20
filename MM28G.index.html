@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Meal Planner App</title>
+ 
+  <script src="https://cdn.tailwindcss.com"></script>
+ 
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+    }
+ 
+    .tab-button.active {
+      background: #111827;
+      color: white;
+    }
+ 
+    .meal-cell:hover {
+      background: #eff6ff;
+    }
+ 
+    .status-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 9999px;
+      border: 1px solid #d1d5db;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+ 
+    .modal-bg {
+      background: rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+ 
+<body>
+ 
+<div class="max-w-7xl mx-auto p-4">
+ 
+  <!-- TABS -->
+  <div class="flex gap-2 mb-6 flex-wrap">
+    <button class="tab-button active px-4 py-2 rounded-lg bg-white shadow"
+      onclick="switchTab('calendar', event)">
+      Calendar
+    </button>
+ 
+    <button class="tab-button px-4 py-2 rounded-lg bg-white shadow"
+      onclick="switchTab('grocery', event)">
+      Grocery List
+    </button>
+ 
+    <button class="tab-button px-4 py-2 rounded-lg bg-white shadow"
+      onclick="switchTab('recipe', event)">
+      Recipe
+    </button>
+  </div>
+ 
+  <!-- CALENDAR -->
+  <div id="calendar-tab">
+ 
+    <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
+ 
+      <div class="flex gap-2">
+        <button
+          class="bg-black text-white px-3 py-2 rounded-lg"
+          onclick="changeWeek(-1)">
+          Previous Week
+        </button>
+ 
+        <button
+          class="bg-black text-white px-3 py-2 rounded-lg"
+          onclick="changeWeek(1)">
+          Next Week
+        </button>
+      </div>
+ 
+      <h2 id="weekLabel" class="font-bold text-lg"></h2>
+ 
+    </div>
+ 
+    <div class="overflow-auto bg-white rounded-2xl shadow">
+ 
+      <table class="w-full border-collapse">
+ 
+        <thead>
+          <tr class="bg-gray-100">
+            <th class="border p-3">Day</th>
+            <th class="border p-3">Breakfast</th>
+            <th class="border p-3">Lunch</th>
+            <th class="border p-3">Dinner</th>
+          </tr>
+        </thead>
+ 
+        <tbody id="calendarBody"></tbody>
+ 
+      </table>
+ 
+    </div>
+ 
+  </div>
+ 
+  <!-- GROCERY -->
+  <div id="grocery-tab" class="hidden">
+ 
+    <div class="bg-white rounded-2xl shadow p-4 mb-4">
+ 
+      <div class="flex gap-3 flex-wrap items-center">
+ 
+        <input
+          type="date"
+          id="groceryDate"
+          class="border rounded-lg px-3 py-2">
+ 
+        <button
+          class="bg-black text-white px-4 py-2 rounded-lg"
+          onclick="createGroceryList()">
+          New
+        </button>
+ 
+      </div>
+ 
+    </div>
+ 
+    <div id="groceryListsContainer"></div>
+ 
+  </div>
+ 
+  <!-- RECIPE -->
+  <div id="recipe-tab" class="hidden">
+ 
+    <div class="bg-white rounded-2xl shadow p-4 mb-4">
+ 
+      <input
+        id="recipeSearch"
+        type="text"
+        placeholder="Search recipe or hashtag (e.g. Chinese)"
+        class="border rounded-lg px-3 py-2 w-full"
+        oninput="renderRecipeList()">
+ 
+    </div>
+ 
+    <div id="recipeList" class="grid gap-4"></div>
+ 
+  </div>
+ 
+</div>
+ 
+<!-- RECIPE PICKER -->
+<div
+  id="recipePickerModal"
+  class="fixed inset-0 modal-bg hidden items-center justify-center p-4 z-50">
+ 
+  <div class="bg-white rounded-2xl w-full max-w-xl p-5">
+ 
+    <div class="flex justify-between mb-4">
+      <h3 class="font-bold text-xl">Select Recipe</h3>
+ 
+      <button onclick="closeRecipePicker()">✕</button>
+    </div>
+ 
+    <input
+      id="recipePickerSearch"
+      type="text"
+      placeholder="Search recipe or hashtag"
+      class="border rounded-lg px-3 py-2 w-full mb-4"
+      oninput="renderRecipePickerList()">
+ 
+    <div id="recipePickerList"></div>
+ 
+  </div>
+ 
+</div>
+ 
+<script>
+ 
+const DAYS = [
+  'Saturday',
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday'
+];
+ 
+const MEALS = [
+  'Breakfast',
+  'Lunch',
+  'Dinner'
+];
+ 
+let recipes = [];
+ 
+let mealPlans =
+  JSON.parse(
+    localStorage.getItem('mealPlans') || '{}'
+  );
+ 
+let groceryLists =
+  JSON.parse(
+    localStorage.getItem('groceryLists') || '[]'
+  );
+ 
+let currentWeekOffset = 0;
+ 
+let selectedMealCell = null;
+ 
+function saveAll() {
+ 
+  localStorage.setItem(
+    'mealPlans',
+    JSON.stringify(mealPlans)
+  );
+ 
+  localStorage.setItem(
+    'groceryLists',
+    JSON.stringify(groceryLists)
+  );
+ 
+}
+ 
+async function loadRecipesFromGoogleSheet() {
+ 
+  try {
+ 
+    const response = await fetch(
+      'https://script.google.com/macros/s/AKfycbwiO_mwaEvl1oDhMLZtkO6CIPUVUbQ6j7RqW0i1gYPWDj2oQ-cH6xRoyki9U0rNj2zX1Q/exec'
+    );
+ 
+    const rows = await response.json();
+ 
+    const recipeMap = {};
+ 
+    rows.forEach(row => {
+ 
+      const recipeName = row["Recipe Name"] || row["RecipeName"];
+ 
+      if (!recipeName) return; 
+ 
+      if (!recipeMap[recipeName]) {
+        
+        const stableId = "id_" + recipeName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const rawHashtags = row["Hashtag"] || row["hashtag"] || "";
+ 
+        recipeMap[recipeName] = {
+          id: stableId,
+          name: recipeName,
+          tags: rawHashtags ? String(rawHashtags).split(',').map(t => t.trim()) : [],
+          servings: row["Servings"] || row["servings"] || "1",
+          ingredients: [],
+          prepSteps: row["Prep Steps"] || row["prepSteps"] || row["Preparation"] || '',
+          cookingSteps: row["Cooking Steps"] || row["cookingSteps"] || row["Cooking"] || '',
+          generalRemarks: row["General Remarks"] || row["generalRemarks"] || row["Remarks"] || ''
+        };
+ 
+      }
+ 
+      recipeMap[recipeName].ingredients.push({
+        name: row["Ingredient"] || row["ingredient"] || "",
+        amount: row["Amount"] || row["amount"] || "0",
+        unit: row["Unit"] || row["unit"] || "",
+        remarks: row["Ingredient Remarks"] || row["ingredientRemarks"] || ""
+      });
+ 
+    });
+ 
+    recipes = Object.values(recipeMap);
+ 
+    renderRecipeList();
+ 
+    renderCalendar();
+ 
+    console.log('Recipes loaded from JSON API successfully.');
+ 
+  } catch(error) {
+ 
+    console.error("Failed to load recipes from Apps Script API: ", error);
+ 
+  }
+ 
+}
+ 
+function switchTab(tab, event) {
+ 
+  document
+    .querySelectorAll('#calendar-tab,#grocery-tab,#recipe-tab')
+    .forEach(el => el.classList.add('hidden'));
+ 
+  document
+    .querySelectorAll('.tab-button')
+    .forEach(el => el.classList.remove('active'));
+ 
+  document
+    .getElementById(tab + '-tab')
+    .classList.remove('hidden');
+ 
+  event.target.classList.add('active');
+ 
+  if (tab === 'recipe') renderRecipeList();
+ 
+  if (tab === 'grocery') renderGroceryLists();
+ 
+}
+ 
+function getWeekStart(offset = 0) {
+ 
+  const now = new Date();
+ 
+  const currentDay = now.getDay();
+ 
+  const saturdayOffset =
+    currentDay === 6
+    ? 0
+    : -(currentDay + 1);
+ 
+  const saturday = new Date(now);
+ 
+  saturday.setDate(
+    now.getDate() +
+    saturdayOffset +
+    offset * 7
+  );
+ 
+  saturday.setHours(0,0,0,0);
+ 
+  return saturday;
+ 
+}
+ 
+function formatDate(date) {
+ 
+  return date.toISOString().split('T')[0];
+ 
+}
+ 
+function renderCalendar() {
+ 
+  const body =
+    document.getElementById('calendarBody');
+ 
+  body.innerHTML = '';
+ 
+  const weekStart =
+    getWeekStart(currentWeekOffset);
+ 
+  const weekEnd = new Date(weekStart);
+ 
+  weekEnd.setDate(
+    weekStart.getDate() + 6
+  );
+ 
+  document.getElementById('weekLabel')
+    .innerText =
+    `${formatDate(weekStart)} → ${formatDate(weekEnd)}`;
+ 
+  DAYS.forEach((day, index) => {
+ 
+    const row = document.createElement('tr');
+ 
+    const date = new Date(weekStart);
+ 
+    date.setDate(
+      weekStart.getDate() + index
+    );
+ 
+    const dateKey = formatDate(date);
+ 
+    row.innerHTML += `
+      <td class="border p-3 font-bold bg-gray-50">
+        ${day}<br>
+        <span class="text-sm font-normal">
+          ${dateKey}
+        </span>
+      </td>
+    `;
+ 
+    MEALS.forEach(meal => {
+ 
+      const mealKey =
+        `${dateKey}_${meal}`;
+ 
+      const recipeId =
+        mealPlans[mealKey];
+ 
+      const recipe =
+        recipes.find(r => r.id === recipeId);
+ 
+      row.innerHTML += `
+        <td
+          class="border p-3 meal-cell cursor-pointer"
+          onclick="openRecipePicker('${dateKey}','${meal}')">
+ 
+          ${
+            recipe
+            ? recipe.name
+            : '<span class="text-gray-400">Select Recipe</span>'
+          }
+ 
+        </td>
+      `;
+ 
+    });
+ 
+    body.appendChild(row);
+ 
+  });
+ 
+}
+ 
+function changeWeek(direction) {
+ 
+  currentWeekOffset += direction;
+ 
+  renderCalendar();
+ 
+}
+ 
+function openRecipePicker(date, meal) {
+ 
+  selectedMealCell = {
+    date,
+    meal
+  };
+ 
+  document
+    .getElementById('recipePickerModal')
+    .classList.remove('hidden');
+ 
+  document
+    .getElementById('recipePickerModal')
+    .classList.add('flex');
+ 
+  renderRecipePickerList();
+ 
+}
+ 
+function closeRecipePicker() {
+ 
+  document
+    .getElementById('recipePickerModal')
+    .classList.add('hidden');
+ 
+}
+ 
+function renderRecipePickerList() {
+ 
+  const keyword =
+    document
+      .getElementById('recipePickerSearch')
+      .value
+      .toLowerCase()
+      .trim();
+ 
+  const container =
+    document
+      .getElementById('recipePickerList');
+ 
+  container.innerHTML = '';
+ 
+  const filtered =
+    recipes.filter(r => {
+      const matchesName = r.name.toLowerCase().includes(keyword);
+      const tagsString = r.tags.join(' ').toLowerCase();
+      const matchesTags = tagsString.includes(keyword);
+ 
+      return matchesName || matchesTags;
+    });
+ 
+  filtered.forEach(recipe => {
+ 
+    const div = document.createElement('div');
+ 
+    div.className =
+      'border rounded-xl p-3 mb-2 cursor-pointer hover:bg-gray-100 transition-colors';
+ 
+    div.innerHTML = `
+      <div class="font-bold text-gray-900">
+        ${recipe.name}
+      </div>
+ 
+      <div class="text-sm text-blue-600 font-medium mt-1">
+        ${recipe.tags.join(', ')}
+      </div>
+    `;
+ 
+    div.onclick = () => {
+ 
+      const key =
+        `${selectedMealCell.date}_${selectedMealCell.meal}`;
+ 
+      mealPlans[key] = recipe.id;
+ 
+      saveAll();
+ 
+      renderCalendar();
+ 
+      closeRecipePicker();
+ 
+    };
+ 
+    container.appendChild(div);
+ 
+  });
+ 
+}
+ 
+function renderRecipeList() {
+ 
+  const keyword =
+    document
+      .getElementById('recipeSearch')
+      .value
+      .toLowerCase()
+      .trim();
+ 
+  const container =
+    document.getElementById('recipeList');
+ 
+  container.innerHTML = '';
+ 
+  const filtered =
+    recipes.filter(r => {
+      const matchesName = r.name.toLowerCase().includes(keyword);
+      const tagsString = r.tags.join(' ').toLowerCase();
+      const matchesTags = tagsString.includes(keyword);
+ 
+      return matchesName || matchesTags;
+    });
+ 
+  filtered.forEach(recipe => {
+ 
+    const card =
+      document.createElement('div');
+ 
+    card.className =
+      'bg-white rounded-2xl shadow p-5';
+ 
+    card.innerHTML = `
+      <h3 class="text-xl font-bold mb-2">
+        ${recipe.name}
+      </h3>
+ 
+      <div class="text-blue-600 font-medium mb-3">
+        ${recipe.tags.join(', ')}
+      </div>
+ 
+      <div class="mb-3 text-gray-700">
+        <strong>Servings:</strong> ${recipe.servings}
+      </div>
+ 
+      <table class="w-full border-collapse mb-4">
+ 
+        <thead>
+          <tr class="bg-gray-100">
+            <th class="border p-2 text-left">Ingredient</th>
+            <th class="border p-2 text-left">Amount</th>
+            <th class="border p-2 text-left">Unit</th>
+          </tr>
+        </thead>
+ 
+        <tbody>
+ 
+          ${recipe.ingredients.map(i => `
+            <tr>
+              <td class="border p-2">${i.name}</td>
+              <td class="border p-2">${i.amount}</td>
+              <td class="border p-2">${i.unit}</td>
+            </tr>
+          `).join('')}
+ 
+        </tbody>
+ 
+      </table>
+ 
+      <div class="mb-2 text-gray-700">
+        <strong>Preparation:</strong><br>
+        <span class="whitespace-pre-line">${recipe.prepSteps}</span>
+      </div>
+ 
+      <div class="mb-2 text-gray-700">
+        <strong>Cooking:</strong><br>
+        <span class="whitespace-pre-line">${recipe.cookingSteps}</span>
+      </div>
+ 
+      <div class="text-gray-700">
+        <strong>Remarks:</strong><br>
+        <span class="whitespace-pre-line">${recipe.generalRemarks}</span>
+      </div>
+    `;
+ 
+    container.appendChild(card);
+ 
+  });
+ 
+}
+ 
+function createGroceryList() {
+ 
+  const selectedDate =
+    document.getElementById('groceryDate').value;
+ 
+  if (!selectedDate) {
+ 
+    alert('Please select date');
+ 
+    return;
+ 
+  }
+ 
+  const aggregated = {};
+ 
+  Object.keys(mealPlans).forEach(key => {
+ 
+    const [date] = key.split('_');
+ 
+    if (date >= selectedDate) {
+ 
+      const recipeId = mealPlans[key];
+ 
+      const recipe =
+        recipes.find(r => r.id === recipeId);
+ 
+      if (recipe) {
+ 
+        recipe.ingredients.forEach(ingredient => {
+ 
+          const aggKey =
+            `${ingredient.name}_${ingredient.unit}`;
+ 
+          if (!aggregated[aggKey]) {
+ 
+            aggregated[aggKey] = {
+              ingredient: ingredient.name,
+              amount: 0,
+              unit: ingredient.unit,
+              ingredientRemarks: ingredient.remarks,
+              status: '',
+              remarks: '',
+              originalIndex: 0 // 用於追蹤狀態切換
+            };
+ 
+          }
+ 
+          aggregated[aggKey].amount +=
+            Number(ingredient.amount || 0);
+ 
+        });
+ 
+      }
+ 
+    }
+ 
+  });
+ 
+  const listId = "list_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+ 
+  const groceryList = {
+    id: listId,
+    date: selectedDate,
+    items: Object.values(aggregated)
+  };
+ 
+  groceryLists.push(groceryList);
+ 
+  saveAll();
+ 
+  renderGroceryLists();
+ 
+}
+ 
+function renderGroceryLists() {
+ 
+  const container =
+    document.getElementById('groceryListsContainer');
+ 
+  container.innerHTML = '';
+ 
+  groceryLists
+    .slice()
+    .reverse()
+    .forEach(list => {
+ 
+      // 為每個 item 綁定一個唯一且固定的標籤，確保點擊 toggleStatus 時能正確辨識
+      list.items.forEach((item, idx) => {
+        item.originalIndex = idx;
+      });
+ 
+      // 核心優化：對材料清單進行權重與字母排序
+      const sortedItems = list.items.slice().sort((a, b) => {
+        // 定義狀態權重：空白(未買)=1，打勾(已買)=2，打叉(唔買)=3
+        const getWeight = (status) => {
+          if (status === '') return 1;
+          if (status === 'tick') return 2;
+          if (status === 'cross') return 3;
+          return 1;
+        };
+ 
+        const weightA = getWeight(a.status);
+        const weightB = getWeight(b.status);
+ 
+        if (weightA !== weightB) {
+          return weightA - weightB; // 權重小的排前面
+        }
+ 
+        // 權重相同（同狀態）時，按 Ingredient 欄位的 Alphabetical 字母排序 (A-Z)
+        return a.ingredient.localeCompare(b.ingredient, 'zh-Hant');
+      });
+ 
+      const card =
+        document.createElement('div');
+ 
+      card.className =
+        'bg-white rounded-2xl shadow p-4 mb-4';
+ 
+      card.innerHTML = `
+        <div class="flex justify-between mb-4">
+ 
+          <h3 class="font-bold text-xl">
+            Grocery List - ${list.date}
+          </h3>
+ 
+          <button
+            class="bg-red-600 text-white px-3 py-2 rounded-lg"
+            onclick="deleteGroceryList('${list.id}')">
+ 
+            Delete
+ 
+          </button>
+ 
+        </div>
+ 
+        <table class="w-full border-collapse">
+ 
+          <thead>
+            <tr class="bg-gray-100">
+              <th class="border p-2 w-20">Status</th>
+              <th class="border p-2">Ingredient</th>
+              <th class="border p-2">Amount</th>
+            </tr>
+          </thead>
+ 
+          <tbody>
+ 
+            ${sortedItems.map((item)=>`
+ 
+              <tr class="${item.status === 'tick' ? 'bg-gray-50 text-gray-400 line-through' : item.status === 'cross' ? 'bg-red-50 text-gray-300 line-through' : ''}">
+ 
+                <td class="border p-2 text-center">
+ 
+                  <button
+                    class="status-btn mx-auto bg-white text-black"
+                    onclick="toggleStatus('${list.id}',${item.originalIndex})">
+ 
+                    ${
+                      item.status === 'tick'
+                      ? '✓'
+                      : item.status === 'cross'
+                      ? '✕'
+                      : ''
+                    }
+ 
+                  </button>
+ 
+                </td>
+ 
+                <td class="border p-2 font-medium">
+                  ${item.ingredient}
+                </td>
+ 
+                <td class="border p-2">
+                  ${item.amount} ${item.unit}
+                </td>
+ 
+              </tr>
+ 
+            `).join('')}
+ 
+          </tbody>
+ 
+        </table>
+      `;
+ 
+      container.appendChild(card);
+ 
+    });
+ 
+}
+ 
+function toggleStatus(listId, originalIndex) {
+ 
+  const list =
+    groceryLists.find(l => l.id === listId);
+ 
+  const item = list.items[originalIndex];
+ 
+  if (item.status === '')
+    item.status = 'tick';
+ 
+  else if (item.status === 'tick')
+    item.status = 'cross';
+ 
+  else
+    item.status = '';
+ 
+  saveAll();
+ 
+  renderGroceryLists();
+ 
+}
+ 
+function deleteGroceryList(listId) {
+ 
+  const confirmed =
+    confirm('Delete grocery list?');
+ 
+  if (!confirmed) return;
+ 
+  groceryLists =
+    groceryLists.filter(
+      list => list.id !== listId
+    );
+ 
+  saveAll();
+ 
+  renderGroceryLists();
+ 
+}
+ 
+document.getElementById('groceryDate').value =
+  formatDate(new Date());
+ 
+// 初始化
+loadRecipesFromGoogleSheet();
+ 
+renderCalendar();
+ 
+renderGroceryLists();
+ 
+</script>
+ 
+</body>
+</html>
